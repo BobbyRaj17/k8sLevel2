@@ -2,7 +2,7 @@
 #This script will install k8s cluster using kubeadm
 
 #please provide the public of pod to
-public_ip=$1
+#public_ip=$1
 
 echo -e "starting the k8s cluster installation using kubeadm"
 
@@ -13,10 +13,10 @@ echo -e "starting the k8s cluster installation using kubeadm"
 ./kubeadm_installation.sh
 
 #intializing kubeadm
-kubeadm init --apiserver-advertise-address=$1
+#kubeadm init --apiserver-advertise-address=$1
 
 # Installing a WEAVE pod network
-./pod_network_installation.sh
+#./pod_network_installation.sh
 
 
 echo -e "completed the k8s cluster installation using kubeadm"
