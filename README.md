@@ -111,6 +111,10 @@ Let's enable persistent storage for all Prometheus components and also expose Gr
 Wait a few minutes and the whole stack should be up and running. Check for all pods in monitoring namespace
 This helm chart also installs prometheus alert-manager which can be also be accessed using `kubectl port-forward`
 
+Exposed the grafana dashboard against a loadbalancer -> http://35.188.15.165/
+![kubeadm](images/grafana.png)  
+
+
 ### 10. Setup log analysis using Elasticsearch, Fluentd, Kibana.
 
 Generated a helm manifest from the the helm chart after minor tweaks using this we can deploy it on kubernetes cluster
