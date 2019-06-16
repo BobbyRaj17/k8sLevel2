@@ -5,4 +5,11 @@ kind: Namespace
 metadata:
   name: development
 
+---
+# Creating namespace with name production
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+
 

@@ -1,0 +1,415 @@
+---
+# Source: efk/charts/fluent-bit/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: "efk-fluent-bit-es-tls-secret"
+  labels:
+    app: fluent-bit
+    chart: fluent-bit-1.3.0
+    heritage: Tiller
+    release: efk
+type: Opaque
+data:
+  es-tls-ca.crt: ""
+---
+# Source: efk/charts/elasticsearch-curator/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: efk-elasticsearch-curator-config
+  labels:
+    app: elasticsearch-curator
+    chart: elasticsearch-curator-1.0.1
+    release: efk
+    heritage: Tiller
+data:
+  action_file.yml:   |-
+    ---
+    actions:
+      1:
+        action: delete_indices
+        description: "Clean up ES by deleting old indices"
+        options:
+          timeout_override:
+          continue_if_exception: False
+          disable_action: False
+          ignore_empty_list: True
+        filters:
+        - filtertype: age
+          source: name
+          direction: older
+          timestring: '%Y.%m.%d'
+          unit: days
+          unit_count: 7
+          field:
+          stats_result:
+          epoch:
+          exclude: False
+
+
+  config.yml: |
+    client:
+      hosts:
+        -  elasticsearch-efk-cluster
+      port: 9200
+---
+# Source: efk/charts/fluent-bit/templates/config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: efk-fluent-bit-config
+  labels:
+    app: fluent-bit
+    chart: fluent-bit-1.3.0
+    heritage: Tiller
+    release: efk
+data:
+  fluent-bit-service.conf: |-
+    [SERVICE]
+        Flush        1
+        Daemon       Off
+        Log_Level    info
+        Parsers_File parsers.conf
+
+  fluent-bit-input.conf: |-
+    [INPUT]
+        Name             tail
+        Path             /var/log/containers/*.log
+        Parser           docker
+        Tag              kube.*
+        Refresh_Interval 5
+        Mem_Buf_Limit    5MB
+        Skip_Long_Lines  On
+
+
+  fluent-bit-filter.conf: |-
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+        Merge_Log           On
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+
+
+  fluent-bit-output.conf: |-
+
+    [OUTPUT]
+        Name  es
+        Match *
+        Host  elasticsearch-efk-cluster
+        Port  9200
+        Logstash_Format On
+        Retry_Limit False
+        Type  flb_type
+        Time_Key @timestamp
+        Replace_Dots On
+        Logstash_Prefix kubernetes_cluster
+
+
+
+
+
+
+  fluent-bit.conf: |-
+    @INCLUDE fluent-bit-service.conf
+    @INCLUDE fluent-bit-input.conf
+    @INCLUDE fluent-bit-filter.conf
+    @INCLUDE fluent-bit-output.conf
+
+  parsers.conf: |-
+---
+# Source: efk/charts/kibana/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: efk-kibana
+  labels:
+    app: kibana
+    chart: "kibana-2.0.0"
+    release: efk
+    heritage: Tiller
+data:
+  kibana.yml: |
+    elasticsearch.url: http://elasticsearch:9200
+    server.host: "0"
+    server.name: kibana
+---
+# Source: efk/charts/fluent-bit/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: fluent-bit
+    chart: fluent-bit-1.3.0
+    heritage: Tiller
+    release: efk
+  name: efk-fluent-bit
+---
+# Source: efk/charts/fluent-bit/templates/cluster-role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: fluent-bit
+    chart: fluent-bit-1.3.0
+    heritage: Tiller
+    release: efk
+  name: efk-fluent-bit
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+---
+# Source: efk/charts/fluent-bit/templates/cluster-rolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: fluent-bit
+    chart: fluent-bit-1.3.0
+    heritage: Tiller
+    release: efk
+  name: efk-fluent-bit
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: efk-fluent-bit
+subjects:
+- kind: ServiceAccount
+  name: efk-fluent-bit
+  namespace: logging
+---
+# Source: efk/charts/kibana/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: kibana
+    chart: kibana-2.0.0
+    release: efk
+    heritage: Tiller
+  name: efk-kibana
+spec:
+  type: ClusterIP
+  ports:
+  - port: 443
+    targetPort: 5601
+    protocol: TCP
+
+  selector:
+    app: kibana
+    release: efk
+---
+# Source: efk/charts/fluent-bit/templates/daemonset.yaml
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: fluent-bit
+  labels:
+    app: fluent-bit
+    chart: fluent-bit-1.3.0
+    heritage: Tiller
+    release: efk
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: fluent-bit
+        release: efk
+      annotations:
+        checksum/config: 095b355883b73366c561bc1b977da84a373225d68ee0251cafc47a2d195902f5
+    spec:
+      hostNetwork: false
+      dnsPolicy: ClusterFirst
+      serviceAccountName: efk-fluent-bit
+      containers:
+      - name: fluent-bit
+        image: "fluent/fluent-bit:1.1.1"
+        imagePullPolicy: "Always"
+        env:
+          []
+
+        resources:
+          {}
+
+        volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: config
+          mountPath: /fluent-bit/etc/fluent-bit.conf
+          subPath: fluent-bit.conf
+        - name: config
+          mountPath: /fluent-bit/etc/fluent-bit-service.conf
+          subPath: fluent-bit-service.conf
+        - name: config
+          mountPath: /fluent-bit/etc/fluent-bit-input.conf
+          subPath: fluent-bit-input.conf
+        - name: config
+          mountPath: /fluent-bit/etc/fluent-bit-filter.conf
+          subPath: fluent-bit-filter.conf
+        - name: config
+          mountPath: /fluent-bit/etc/fluent-bit-output.conf
+          subPath: fluent-bit-output.conf
+
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: config
+        configMap:
+          name: efk-fluent-bit-config
+---
+# Source: efk/charts/kibana/templates/deployment.yaml
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app: kibana
+    chart: "kibana-2.0.0"
+    heritage: Tiller
+    release: efk
+  name: efk-kibana
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  template:
+    metadata:
+      annotations:
+        checksum/config: dae06a930c445e7ddb2e20e22e7bb0b5b06e999d09ca341da391631eebabb4a5
+      labels:
+        app: kibana
+        release: "efk"
+    spec:
+      serviceAccountName: default
+      containers:
+      - name: kibana
+        image: "docker.elastic.co/kibana/kibana-oss:6.4.2"
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: "ELASTICSEARCH_URL"
+          value: "http://elasticsearch-efk-cluster:9200"
+        - name: "LOGGING_VERBOSE"
+          value: "true"
+        - name: "SERVER_DEFAULTROUTE"
+          value: "/app/kibana"
+        - name: "SERVER_PORT"
+          value: "5601"
+        ports:
+        - containerPort: 5601
+          name: kibana
+          protocol: TCP
+        resources:
+          {}
+
+        volumeMounts:
+        - name: kibana
+          mountPath: "/usr/share/kibana/config/kibana.yml"
+          subPath: kibana.yml
+      tolerations:
+        []
+
+      volumes:
+      - name: kibana
+        configMap:
+          name: efk-kibana
+---
+# Source: efk/charts/elasticsearch-curator/templates/cronjob.yaml
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: efk-elasticsearch-curator
+  labels:
+    app: elasticsearch-curator
+    chart: elasticsearch-curator-1.0.1
+    release: efk
+    heritage: Tiller
+spec:
+  schedule: "0 1 * * *"
+  jobTemplate:
+    metadata:
+      labels:
+        app: elasticsearch-curator
+        release: efk
+    spec:
+      template:
+        metadata:
+          labels:
+            app: elasticsearch-curator
+            release: efk
+        spec:
+          volumes:
+          - name: config-volume
+            configMap:
+              name: efk-elasticsearch-curator-config
+          restartPolicy: Never
+          containers:
+          - name: elasticsearch-curator
+            image: "quay.io/pires/docker-elasticsearch-curator:5.5.4"
+            imagePullPolicy: IfNotPresent
+            volumeMounts:
+            - name: config-volume
+              mountPath: /etc/es-curator
+            command: [ "curator" ]
+            args: [ "--config", "/etc/es-curator/config.yml", "/etc/es-curator/action_file.yml" ]
+            resources:
+              {}
+---
+# Source: efk/charts/elasticsearch/templates/cluster.yaml
+apiVersion: enterprises.upmc.com/v1
+kind: ElasticsearchCluster
+metadata:
+  name: efk-cluster
+  labels:
+    app: elasticsearch
+    chart: elasticsearch-0.1.6
+    release: efk
+    heritage: Tiller
+spec:
+  client-java-options: -Xms1024m -Xmx1024m
+  client-node-replicas: 1
+  data-java-options: -Xms2048m -Xmx2048m
+  data-node-replicas: 1
+  data-volume-size: 10Gi
+  elastic-search-image: quay.io/pires/docker-elasticsearch-kubernetes:6.4.2
+  master-java-options: -Xms2048m -Xmx2048m
+  master-node-replicas: 1
+  network-host: 0.0.0.0
+  resources:
+    limits:
+      cpu: "1"
+      memory: 2048Mi
+    requests:
+      cpu: 200m
+      memory: 1024Mi
+  snapshot:
+    bucket-name: efk-snapshots
+    bucketName: elasticsnapshots
+    cron-schedule: 0 2 * * *
+    enabled: false
+    image: komljen/elasticsearch-cron:0.0.6
+    repo-region: us-east-1
+    repo-type: s3
+    schedule: '@every 2m'
+    scheduler-enabled: false
+  storage:
+    classProvisioner: volume.alpha.kubernetes.io/storage-class
+    reclaimPolicy: Delete
+    type: gp2
+  use-ssl: false
+  zones: []
