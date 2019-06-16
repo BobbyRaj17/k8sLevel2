@@ -44,8 +44,7 @@ perform the step 1 on worker node and then using the the below command join the 
 > NOTE: we have an issue with kubeadm  hosted in gcp while trying to initialize it with public-ip address - https://github.com/kubernetes/kubeadm/issues/1390
 Please refer the below screen confirmation which shows the kubeadm cluster was installed correctly and highlighted node joined as worker
 
-![kubeadm](/Users/bobbyraj/Desktop/kubeadm.png)  
-`<PENDING>`
+![kubeadm](images/kubeadm.png)  
 
 
 ### 2. Create CI/CD pipeline using jenkins outside kubernetes cluster
